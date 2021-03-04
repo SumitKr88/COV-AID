@@ -88,7 +88,7 @@ def process_temperature_face_frame(frame, faceNet):
             # Write temperature for each rectangle
             cv2.putText(image_with_rectangles, "{} F".format(maxTemperature), (startX, startY),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
-    return image_with_rectangles
+    return (image_with_rectangles, maxTemperature)
 
 
 def process_temperature_frame(frame):
@@ -109,7 +109,7 @@ def process_temperature_frame(frame):
 
     # Get contours from the image obtained by opening operation
     contours, _ = cv2.findContours(image_opening, 1, 2)
-    temperatureArray = []
+    temperatureArray = [0.0]
 
     for contour in contours:
         # rectangle over each contour
@@ -153,6 +153,7 @@ def detect_and_predict_mask(frame, faceNet, maskNet):
     faces = []
     locs = []
     preds = []
+    faceTemperatureList = []
 
     # loop over the detections
     for i in range(0, detections.shape[2]):
@@ -176,6 +177,8 @@ def detect_and_predict_mask(frame, faceNet, maskNet):
             # extract the face ROI, convert it from BGR to RGB channel
             # ordering, resize it to 224x224, and preprocess it
             face = frame[startY:endY, startX:endX]
+            maxTemperature = process_temperature_frame(face)
+            faceTemperatureList.append(maxTemperature)
             # face = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
             face = cv2.resize(face, (224, 224))
             face = img_to_array(face)
@@ -196,7 +199,7 @@ def detect_and_predict_mask(frame, faceNet, maskNet):
 
     # return a 2-tuple of the face locations and their corresponding
     # locations
-    return (locs, preds)
+    return (locs, preds, faceTemperatureList)
 
 # load our serialized face detector model from disk
 prototxtPath = r"face_detector/deploy.prototxt"
@@ -216,15 +219,14 @@ while True:
     # to have a maximum width of 400 pixels
     frame = vs.read()
     frame = imutils.resize(frame, width=1080)
-    frame = process_temperature_face_frame(frame, faceNet)
 
     # detect faces in the frame and determine if they are wearing a
     # face mask or not
-    (locs, preds) = detect_and_predict_mask(frame, faceNet, maskNet)
+    (locs, preds, faceTemperatureList) = detect_and_predict_mask(frame, faceNet, maskNet)
 
     # loop over the detected face locations and their corresponding
     # locations
-    for (box, pred) in zip(locs, preds):
+    for (box, pred, temperature) in zip(locs, preds, faceTemperatureList):
         # unpack the bounding box and predictions
         (startX, startY, endX, endY) = box
         (mask, withoutMask) = pred
@@ -236,11 +238,16 @@ while True:
 
         # include the probability in the label
         label = "{}: {:.2f}%".format(label, max(mask, withoutMask) * 100)
+        temperatureLabel = "Temperature: " + str(temperature)
+
+        temperatureColor = (255, 100, 100)
 
         # display the label and bounding box rectangle on the output
         # frame
         cv2.putText(frame, label, (startX, startY - 10),
             cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 2)
+        cv2.putText(frame, temperatureLabel, (startX, endY + 20),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.45, temperatureColor, 2)
         cv2.rectangle(frame, (startX, startY), (endX, endY), color, 2)
 
     # show the output frame
